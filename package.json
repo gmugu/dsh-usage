@@ -1,0 +1,22 @@
+{
+  "name": "@local/dsh-usage",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "dsh": {
+    "meta": {
+      "title": "用量统计",
+      "description": "在侧栏查看 DeepSeek 余额与智谱 Code Plan 剩余额度"
+    },
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web", "immediately": true }
+  }
+}
