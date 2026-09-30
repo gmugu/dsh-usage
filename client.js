@@ -28,6 +28,7 @@ window.__ModuleLoader__.load({
       resetAt: '重置',
       noData: '暂无数据',
       close: '关闭',
+      settings: '设置',
     };
     const en = {
       panel: 'Usage',
@@ -50,16 +51,14 @@ window.__ModuleLoader__.load({
       resetAt: 'resets',
       noData: 'No data yet',
       close: 'Close',
+      settings: 'Settings',
     };
 
     const CSS = `
-.dshu-entry-row { flex: none; align-items: center; gap: 8px; width: calc(100% + 4px); margin: 4px -2px; display: flex; position: relative; }
-.dshu-entry-row.rail { width: 36px; margin: 8px 0 10px; }
 .dshu-entry { box-sizing: border-box; border-radius: var(--dsw-radius-md); cursor: pointer; width: auto; min-width: 0;
-  height: 42px; color: var(--dsw-alias-label-primary); background: 0 0; border: none; flex: 1; align-items: center;
-  gap: 8px; margin: 0; padding: 0 10px 0 8px; font-family: inherit; font-size: 14px; line-height: 22px; display: flex; overflow: hidden; }
-.dshu-entry:hover { background: var(--dsw-alias-interactive-bg-hover); }
-.dshu-entry.rail { flex: none; justify-content: center; gap: 0; width: 36px; height: 36px; margin: 0; padding: 0; }
+  height: 30px; color: var(--dsw-alias-label-secondary); background: 0 0; border: none; flex: 1; align-items: center;
+  gap: 7px; margin: 0; padding: 0 8px; font-family: inherit; font-size: 12px; line-height: 18px; display: flex; overflow: hidden; }
+.dshu-entry:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .dshu-entry-label { white-space: nowrap; overflow: hidden; }
 .dshu-overlay { z-index: 1000; justify-content: center; align-items: center; display: flex; position: fixed; inset: 0; }
 .dshu-mask { position: absolute; inset: 0; background: var(--dsw-alias-bg-mask-1, var(--dsw-alias-bg-base)); backdrop-filter: var(--dsw-mask-blur); opacity: 0.9; }
@@ -78,6 +77,12 @@ window.__ModuleLoader__.load({
 .dshu-close { border: 0; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer;
   border-radius: var(--dsw-radius-md, 8px); width: 32px; height: 32px; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
 .dshu-close:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.dshu-launcher { align-items: center; gap: 6px; width: 100%; display: flex; }
+.dshu-launcher.rail { flex-direction: column; gap: 10px; }
+.dshu-launcher .dshu-entry { height: 42px; font-size: 14px; line-height: 22px; padding: 0 10px 0 8px; gap: 8px; }
+.dshu-launcher.rail .dshu-entry { height: 36px; width: 36px; padding: 0; justify-content: center; }
+.dshu-entry.dshu-usage-mini { flex: none; width: 32px; height: 32px; padding: 0; justify-content: center; color: var(--dsw-alias-label-secondary); }
+.dshu-entry.dshu-usage-mini:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .dshu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
 .dshu-card { background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; padding: 16px; min-width: 0; }
 .dshu-card-name { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dsw-alias-label-secondary); margin-bottom: 10px; }
@@ -255,19 +260,37 @@ window.__ModuleLoader__.load({
       return localeHandle;
     }
 
-    function FooterEntry(props) {
+    function GearIcon({ size }) {
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
+        stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round',
+        'aria-hidden': true, style: { display: 'block', flex: 'none' },
+      },
+      h('circle', { cx: 12, cy: 12, r: 3 }),
+      h('path', { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z' }));
+    }
+
+    function LauncherRow(props) {
       const wide = props?.wide !== false;
-      return h('div', { className: 'dshu-entry-row' + (wide ? '' : ' rail') },
+      const openSettings = props?.openSettings;
+      const usageButton = h('button', {
+        className: 'dshu-entry dshu-usage-mini',
+        type: 'button',
+        'aria-label': localeHandle.t('panel'),
+        'aria-haspopup': 'dialog',
+        onClick: () => popupStore.set(true),
+      }, UsageIcon({ size: wide ? 16 : 18 }));
+      const settingsButton = h('button', {
+        className: 'dshu-entry',
+        type: 'button',
+        'aria-label': localeHandle.t('settings'),
+        onClick: () => { if (typeof openSettings === 'function') openSettings(); },
+      },
+      GearIcon({ size: wide ? 16 : 18 }),
+      wide && h('span', { className: 'dshu-entry-label' }, localeHandle.t('settings')));
+      return h('div', { className: 'dshu-launcher' + (wide ? '' : ' rail') },
         h('style', null, CSS),
-        h('button', {
-          className: 'dshu-entry' + (wide ? '' : ' rail'),
-          type: 'button',
-          'aria-label': localeHandle.t('panel'),
-          'aria-haspopup': 'dialog',
-          onClick: () => popupStore.set(true),
-        },
-        UsageIcon({ size: wide ? 16 : 18 }),
-        wide && h('span', { className: 'dshu-entry-label' }, localeHandle.t('panel'))));
+        wide ? [settingsButton, usageButton] : [usageButton, settingsButton]);
     }
 
     function CloseIcon() {
@@ -297,13 +320,10 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-usage: dictionaries');
         localeHandle = { t: ctx.locale.bind(NS) };
-        ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-          name: 'sidebar.footer.action',
-          id: PANEL_ID,
-          order: 10,
+        ctx.slots.inject('settings.launcher', () => ctx.slots.register({
+          name: 'settings.launcher',
           locale: NS,
-          label: () => localeHandle.t('panel'),
-        }, FooterEntry));
+        }, LauncherRow));
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay',
           id: PANEL_ID + '-popup',

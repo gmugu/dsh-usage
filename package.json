@@ -1,5 +1,5 @@
 {
-  "name": "@local/dsh-usage",
+  "name": "dsh-usage",
   "version": "1.0.0",
   "private": true,
   "type": "module",
