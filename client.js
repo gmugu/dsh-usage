@@ -38,6 +38,11 @@ window.__ModuleLoader__.load({
       qwenQueryFailed: '查询失败，稍后自动重试',
       qwenSeat: '席位',
       qwenOverallLabel: '总积分剩余',
+      qwenLoginBtn: '登录',
+      qwenWaiting: '等待浏览器授权，完成后此处自动更新',
+      qwenOpenAuth: '打开授权页面',
+      qwenLoginExpired: '登录会话已过期，请重新点击登录',
+      qwenLoginFailed: '发起登录失败，请稍后重试',
     };
     const en = {
       panel: 'Usage',
@@ -70,6 +75,11 @@ window.__ModuleLoader__.load({
       qwenQueryFailed: 'Query failed; will retry',
       qwenSeat: 'Seat',
       qwenOverallLabel: 'Total credits remaining',
+      qwenLoginBtn: 'Log in',
+      qwenWaiting: 'Waiting for browser authorization; this updates automatically',
+      qwenOpenAuth: 'Open authorization page',
+      qwenLoginExpired: 'Login session expired; click log in again',
+      qwenLoginFailed: 'Failed to start login; try again later',
     };
 
     const CSS = `
@@ -211,6 +221,41 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => { void load(false); }, [load]);
 
+      const qwenLogin = data?.qwenLogin;
+
+      // Poll only while a login session is actually in flight (bounded by its 5-minute window).
+      React.useEffect(() => {
+        if (qwenLogin?.status !== 'pending') return undefined;
+        const timer = setInterval(() => { void load(false); }, 4000);
+        return () => clearInterval(timer);
+      }, [qwenLogin?.status, load]);
+
+      // When the host reports a settled login result, force one data refresh, then stop.
+      React.useEffect(() => {
+        if (qwenLogin?.status === 'ok' || qwenLogin?.status === 'expired' || qwenLogin?.status === 'failed') {
+          void load(true);
+        }
+      }, [qwenLogin?.status, load]);
+
+      const startQwenLogin = React.useCallback(async () => {
+        // Open synchronously inside the click gesture so browsers allow it, then navigate once the URL arrives.
+        // Sever the opener reference so the authorization page can never navigate this tab.
+        const popup = window.open('', '_blank');
+        if (popup) { try { popup.opener = null; } catch {} }
+        try {
+          const res = await fetch('/dsh-usage/qwen-login', { method: 'POST', cache: 'no-store' });
+          const info = await res.json();
+          if (popup && typeof info?.url === 'string' && info.url) {
+            popup.location = info.url;
+          } else if (popup) {
+            popup.close();
+          }
+        } catch {
+          if (popup) popup.close();
+        }
+        void load(false);
+      }, [load]);
+
       const t = ctxLocale().t;
 
       const updated = data?.fetchedAt ? Date.now() - data.fetchedAt : null;
@@ -253,37 +298,59 @@ window.__ModuleLoader__.load({
           : qwen.error === 'auth' ? t('qwenLogin')
           : qwen.error === 'query-failed' ? t('qwenQueryFailed')
           : qwen.error ? String(qwen.error) : null;
+        let qwenBody;
+        if (qwen.error === 'auth') {
+          const pending = qwenLogin?.status === 'pending';
+          const sessionOver = qwenLogin?.status === 'expired' || qwenLogin?.status === 'failed';
+          qwenBody = h('div', null,
+            h('div', { className: 'dshu-muted' },
+              pending ? t('qwenWaiting')
+              : qwenLogin?.status === 'expired' ? t('qwenLoginExpired')
+              : sessionOver ? t('qwenLoginFailed')
+              : t('qwenLogin')),
+            pending && qwenLogin?.url
+              ? h('a', {
+                  className: 'dshu-refresh', href: qwenLogin.url, target: '_blank', rel: 'noreferrer',
+                  style: { marginTop: 10, textDecoration: 'none', display: 'inline-flex' },
+                }, t('qwenOpenAuth'))
+              : h('button', {
+                  className: 'dshu-refresh', type: 'button', style: { marginTop: 10 },
+                  onClick: () => { void startQwenLogin(); },
+                }, t('qwenLoginBtn')));
+        } else if (qwenErrorText) {
+          qwenBody = h('div', { className: 'dshu-muted' }, qwenErrorText);
+        } else {
+          qwenBody = h('div', { className: 'dshu-windows' },
+            h('div', null,
+              h('div', { className: 'dshu-window-head' },
+                h('span', { className: 'dshu-window-label' }, t('qwenOverallLabel')),
+                h('span', { className: 'dshu-pct' },
+                  qwen.remainingPct == null ? t('noData') : Math.round(qwen.remainingPct) + '%'),
+                qwen.expiresAt && h('span', { className: 'dshu-reset' }, `${t('qwenExpires')} ${formatReset(qwen.expiresAt)}`)),
+              h(Bar, { remainingPct: qwen.remainingPct, warnPct }),
+              h('div', { className: 'dshu-credits' },
+                qwen.credits && qwen.credits.remaining != null
+                  ? `${t('qwenCreditsPrefix')}${qwen.credits.total != null ? `${Math.round(qwen.credits.remaining)} / ${Math.round(qwen.credits.total)}` : Math.round(qwen.credits.remaining)}` : null,
+                qwen.credits?.addOn != null ? ` · ${t('qwenAddOn')} ${Math.round(qwen.credits.addOn)}` : null)),
+            qwen.seats?.length ? qwen.seats.map((s) => {
+              const seatPct = s.remaining != null && s.total > 0 ? (s.remaining / s.total) * 100 : null;
+              return h('div', { key: s.seat },
+                h('div', { className: 'dshu-window-head' },
+                  h('span', { className: 'dshu-window-label' }, `${t('qwenSeat')} ${s.seat}`),
+                  h('span', { className: 'dshu-seat-pct' },
+                    seatPct == null ? t('noData') : Math.round(seatPct) + '%'),
+                  h('span', { className: 'dshu-seat-credits' },
+                    s.remaining != null ? `${Math.round(s.remaining)} / ${Math.round(s.total)}` : null)),
+                h(Bar, { remainingPct: seatPct, warnPct }));
+            }) : null);
+        }
         cards.push(h('div', {
           key: 'qwen', className: 'dshu-card',
           style: { '--dshu-level': qwenErrorText
             ? 'var(--dsw-alias-state-error-primary)' : levelVar(qwen.remainingPct, warnPct) },
         },
           h('div', { className: 'dshu-card-name' }, h('span', { className: 'dshu-dot' }), t('qwen')),
-          qwenErrorText
-            ? h('div', { className: 'dshu-muted' }, qwenErrorText)
-            : h('div', { className: 'dshu-windows' },
-                h('div', null,
-                  h('div', { className: 'dshu-window-head' },
-                    h('span', { className: 'dshu-window-label' }, t('qwenOverallLabel')),
-                    h('span', { className: 'dshu-pct' },
-                      qwen.remainingPct == null ? t('noData') : Math.round(qwen.remainingPct) + '%'),
-                    qwen.expiresAt && h('span', { className: 'dshu-reset' }, `${t('qwenExpires')} ${formatReset(qwen.expiresAt)}`)),
-                  h(Bar, { remainingPct: qwen.remainingPct, warnPct }),
-                  h('div', { className: 'dshu-credits' },
-                    qwen.credits && qwen.credits.remaining != null
-                      ? `${t('qwenCreditsPrefix')}${qwen.credits.total != null ? `${Math.round(qwen.credits.remaining)} / ${Math.round(qwen.credits.total)}` : Math.round(qwen.credits.remaining)}` : null,
-                    qwen.credits?.addOn != null ? ` · ${t('qwenAddOn')} ${Math.round(qwen.credits.addOn)}` : null)),
-                qwen.seats?.length ? qwen.seats.map((s) => {
-                  const seatPct = s.remaining != null && s.total > 0 ? (s.remaining / s.total) * 100 : null;
-                  return h('div', { key: s.seat },
-                    h('div', { className: 'dshu-window-head' },
-                      h('span', { className: 'dshu-window-label' }, `${t('qwenSeat')} ${s.seat}`),
-                      h('span', { className: 'dshu-seat-pct' },
-                        seatPct == null ? t('noData') : Math.round(seatPct) + '%'),
-                      h('span', { className: 'dshu-seat-credits' },
-                        s.remaining != null ? `${Math.round(s.remaining)} / ${Math.round(s.total)}` : null)),
-                    h(Bar, { remainingPct: seatPct, warnPct }));
-                }) : null)));
+          qwenBody));
       }
 
       if (deepseek) cards.push(h('div', { key: 'deepseek', className: 'dshu-card' },

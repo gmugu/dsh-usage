@@ -1,5 +1,5 @@
 /** Host half: fetch DeepSeek balance + Zhipu Code Plan quota + Qwen Token Plan, serve one JSON endpoint. */
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import z from '@deepseek-ai/schemastery';
@@ -209,14 +209,17 @@ export function apply(ctx, config) {
       state.qwen = { ...state.qwen, error: 'cli-missing', credits: null, expiresAt: null };
       return;
     }
-    const { error, stdout } = await execNode(entry, ['usage', 'summary', '--format', 'json']);
+    const { error, stdout, stderr } = await execNode(entry, ['usage', 'summary', '--format', 'json']);
     let body = null;
-    try { body = stdout ? JSON.parse(stdout) : null; } catch { body = null; }
-    if (body?.error?.code === 'AUTH_REQUIRED' || body?.error?.code === 'EAUTH') {
+    for (const text of [stdout, stderr]) {
+      if (!text) continue;
+      try { const parsed = JSON.parse(text); if (parsed && typeof parsed === 'object') { body = parsed; break; } } catch {}
+    }
+    if (body?.error?.code === 'AUTH_REQUIRED' || body?.error?.code === 'EAUTH' || body?.error?.code === 'TOKEN_EXPIRED') {
       state.qwen = { ...state.qwen, error: 'auth', credits: null, expiresAt: null, seats: [] };
       return;
     }
-    if (error || !body) {
+    if (!body || !body?.token_plan) {
       state.qwen = { ...state.qwen, error: 'query-failed', credits: null, expiresAt: null, seats: [] };
       return;
     }
@@ -246,9 +249,12 @@ export function apply(ctx, config) {
 
   /** Per-seat credits of a team Token Plan: `subscription tokenplan seats`. */
   async function refreshQwenSeats(entry) {
-    const { stdout } = await execNode(entry, ['subscription', 'tokenplan', 'seats', '--format', 'json']);
+    const { stdout, stderr } = await execNode(entry, ['subscription', 'tokenplan', 'seats', '--format', 'json']);
     let body = null;
-    try { body = stdout ? JSON.parse(stdout) : null; } catch { body = null; }
+    for (const text of [stdout, stderr]) {
+      if (!text) continue;
+      try { const parsed = JSON.parse(text); if (parsed && typeof parsed === 'object') { body = parsed; break; } } catch {}
+    }
     if (!Array.isArray(body?.items)) return [];
     const seats = [];
     for (const item of body.items) {
@@ -296,6 +302,84 @@ export function apply(ctx, config) {
     return () => clearInterval(timer);
   }, 'dsh-usage: refresh timer');
 
+  /** Qwen CLI device-flow login driven from the popup: init → user authorizes in browser → background poll completes. */
+  let qwenLogin = null;
+  let qwenLoginChild = null;
+
+  async function startQwenLogin() {
+    if (qwenLogin?.status === 'pending' && Date.now() < qwenLogin.expiresAt - 5000) return qwenLogin;
+    if (qwenLoginChild) { try { qwenLoginChild.kill(); } catch {} qwenLoginChild = null; }
+    const entry = await findQwenCli();
+    if (!entry) {
+      qwenLogin = { status: 'failed', message: 'cli-missing', url: null, expiresAt: 0 };
+      return qwenLogin;
+    }
+    const { stdout: initOut, stderr: initErr } = await execNode(entry, ['auth', 'login', '--init-only', '--format', 'json']);
+    let body = null;
+    for (const text of [initOut, initErr]) {
+      if (!text) continue;
+      try { const parsed = JSON.parse(text); if (parsed && typeof parsed === 'object') { body = parsed; break; } } catch {}
+    }
+    const events = Array.isArray(body?.events) ? body.events : [];
+    const already = events.find((e) => e?.event === 'already_authenticated');
+    if (already) {
+      qwenLogin = { status: 'ok', url: null, expiresAt: 0 };
+      void refresh(true);
+      return qwenLogin;
+    }
+    const code = events.find((e) => e?.event === 'device_code' && typeof e.verification_url === 'string');
+    if (!code) {
+      qwenLogin = { status: 'failed', message: 'init-failed', url: null, expiresAt: 0 };
+      return qwenLogin;
+    }
+    const ttlSeconds = Number(code.expires_in_seconds) > 0 ? Number(code.expires_in_seconds) : 300;
+    qwenLogin = {
+      status: 'pending',
+      url: code.verification_url,
+      startedAt: Date.now(),
+      expiresAt: Date.now() + ttlSeconds * 1000,
+    };
+    const child = spawn(process.execPath,
+      [entry, 'auth', 'login', '--complete', '--timeout', String(Math.max(60, ttlSeconds - 10)), '--format', 'json'],
+      { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    qwenLoginChild = child;
+    child.on('error', () => { qwenLoginChild = null; });
+    child.on('exit', (exitCode) => {
+      qwenLoginChild = null;
+      if (!qwenLogin || qwenLogin.status !== 'pending') return;
+      if (exitCode === 0) {
+        qwenLogin = { status: 'ok', url: null, expiresAt: 0 };
+        void refresh(true);
+      } else if (Date.now() >= qwenLogin.expiresAt) {
+        qwenLogin = { status: 'expired', url: null, expiresAt: 0 };
+      } else {
+        qwenLogin = { status: 'failed', message: 'complete-failed', url: null, expiresAt: 0 };
+      }
+    });
+    return qwenLogin;
+  }
+
+  ctx.effect(() => {
+    const disposeRoute = ctx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-usage/qwen-login',
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'method-not-allowed' }));
+          return;
+        }
+        try { await startQwenLogin(); } catch (error) {
+          qwenLogin = { status: 'failed', message: String(error?.message || error), url: null, expiresAt: 0 };
+        }
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(JSON.stringify(qwenLogin ?? { status: 'failed', message: 'unknown' }));
+      },
+    });
+    const disposeChild = () => { if (qwenLoginChild) { try { qwenLoginChild.kill(); } catch {} } };
+    return () => { disposeRoute(); disposeChild(); };
+  }, 'dsh-usage: qwen login route');
+
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: '/dsh-usage/quota',
@@ -310,6 +394,7 @@ export function apply(ctx, config) {
         zhipu: state.zhipu ? { ...state.zhipu } : null,
         deepseek: state.deepseek ? { ...state.deepseek } : null,
         qwen: state.qwen ? { ...state.qwen } : null,
+        qwenLogin,
         fetchedAt: state.fetchedAt,
         thresholds: { warnRemainingPct: config.warnRemainingPct },
       }));
