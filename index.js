@@ -146,23 +146,32 @@ export function apply(ctx, config) {
   async function findQwenCli() {
     if (qwenCliEntry !== undefined) return qwenCliEntry;
     qwenCliEntry = null;
-    for (const dir of (process.env.PATH || '').split(';')) {
-      const cleaned = dir?.trim();
-      if (!cleaned || !/^[a-zA-Z]:[\\/]/.test(cleaned.replace(/"/g, ''))) continue;
-      const pkgDir = join(cleaned.replace(/"/g, ''), 'node_modules', ...QWEN_CLI_PACKAGE.split('/'));
-      const manifest = `${pkgDir}\\package.json`;
-      try {
-        await access(manifest);
-        const pkg = JSON.parse(await readFile(manifest, 'utf8'));
-        const bin = typeof pkg.bin === 'string' ? pkg.bin
-          : pkg.bin && typeof pkg.bin === 'object' ? (pkg.bin.qianwen ?? pkg.bin[QWEN_CLI_PACKAGE] ?? Object.values(pkg.bin)[0])
-          : null;
-        if (typeof bin !== 'string') continue;
-        const entry = pkgDir + (bin.startsWith('/') || bin.startsWith('\\') || /^[a-zA-Z]:/.test(bin) ? bin : '\\' + bin.replace(/^\.\//, ''));
-        await access(entry);
-        qwenCliEntry = entry;
-        break;
-      } catch {}
+    const isWin = process.platform === 'win32';
+    const isAbsolute = (p) => isWin ? /^[a-zA-Z]:[\\/]/.test(p) : p.startsWith('/');
+    for (const dir of (process.env.PATH || '').split(isWin ? ';' : ':')) {
+      const cleaned = dir?.trim().replace(/"/g, '');
+      if (!cleaned || !isAbsolute(cleaned)) continue;
+      // Windows npm layout: <prefix>/node_modules + shims in <prefix>; POSIX: <prefix>/lib/node_modules + bins in <prefix>/bin.
+      const candidates = isWin
+        ? [join(cleaned, 'node_modules')]
+        : [join(cleaned, 'node_modules'), join(cleaned, '..', 'lib', 'node_modules')];
+      for (const modulesDir of candidates) {
+        const pkgDir = join(modulesDir, ...QWEN_CLI_PACKAGE.split('/'));
+        const manifest = join(pkgDir, 'package.json');
+        try {
+          await access(manifest);
+          const pkg = JSON.parse(await readFile(manifest, 'utf8'));
+          const bin = typeof pkg.bin === 'string' ? pkg.bin
+            : pkg.bin && typeof pkg.bin === 'object' ? (pkg.bin.qianwen ?? pkg.bin[QWEN_CLI_PACKAGE] ?? Object.values(pkg.bin)[0])
+            : null;
+          if (typeof bin !== 'string') continue;
+          const entry = isAbsolute(bin) ? bin : join(pkgDir, bin.replace(/^\.\//, ''));
+          await access(entry);
+          qwenCliEntry = entry;
+          break;
+        } catch {}
+      }
+      if (qwenCliEntry) break;
     }
     return qwenCliEntry;
   }
