@@ -38,6 +38,23 @@ dsh plugin --profile <你的profile> remove dsh-usage
 | `deepseekCredentialRef` | `DEEPSEEK_API_KEY` | 自动模式的凭据引用名 |
 | `refreshMinutes` | `5` | 后台刷新间隔（分钟） |
 | `warnRemainingPct` | `20` | 剩余百分比低于该值时进度条转错误色 |
+| `qwenEnabled` | `true` | 启用千问 Token Plan 用量（数据来自官方千问 CLI 的登录态） |
+| `qwenCredentialRef` | `QWEN_TOKEN_PLAN_CN_API_KEY` | DSH 中该套餐的凭据引用名 |
+
+### 卡片显示门控
+
+某供应商未在 DSH 模型中配置 API Key 时，对应用量卡整体隐藏：智谱探测 `ZAI_CODING_CN_API_KEY`（及 zai 相关凭据记录），DeepSeek 探测 `DEEPSEEK_API_KEY`，千问探测 `QWEN_TOKEN_PLAN_CN_API_KEY`（该 Key 不用于查询，仅作为"你在 DSH 使用该套餐"的依据；千问数据经官方千问 CLI 的登录态获取）。
+
+### 千问 Token Plan
+
+数据来自官方 [`@qianwenai/qianwen-cli`](https://www.npmjs.com/package/@qianwenai/qianwen-cli)：
+
+```sh
+npm install -g @qianwenai/qianwen-cli
+qianwen login
+```
+
+插件在宿主侧执行 `qianwen usage summary --format json`（固定参数、不经 shell、15 秒超时），读取 `token_plan` 的总 Credits / 剩余 Credits 与订阅到期时间；登录凭据始终由 CLI 自己保管。CLI 未安装或未登录时，千问卡会显示对应的安装/登录指引。
 
 ### 团队套餐必读
 

@@ -29,6 +29,15 @@ window.__ModuleLoader__.load({
       noData: '暂无数据',
       close: '关闭',
       settings: '设置',
+      qwen: '千问 Token Plan',
+      qwenCreditsPrefix: '剩余 ',
+      qwenExpires: '订阅到期',
+      qwenAddOn: '加量包剩余',
+      qwenCliMissing: '未找到千问 CLI：npm install -g @qianwenai/qianwen-cli 并运行 qianwen login',
+      qwenLogin: '千问 CLI 未登录：运行 qianwen login',
+      qwenQueryFailed: '查询失败，稍后自动重试',
+      qwenSeat: '席位',
+      qwenOverallLabel: '总积分剩余',
     };
     const en = {
       panel: 'Usage',
@@ -52,6 +61,15 @@ window.__ModuleLoader__.load({
       noData: 'No data yet',
       close: 'Close',
       settings: 'Settings',
+      qwen: 'Qwen Token Plan',
+      qwenCreditsPrefix: 'credits left: ',
+      qwenExpires: 'expires',
+      qwenAddOn: 'add-on remaining',
+      qwenCliMissing: 'Qwen CLI not found: npm install -g @qianwenai/qianwen-cli, then qianwen login',
+      qwenLogin: 'Qwen CLI not logged in: run qianwen login',
+      qwenQueryFailed: 'Query failed; will retry',
+      qwenSeat: 'Seat',
+      qwenOverallLabel: 'Total credits remaining',
     };
 
     const CSS = `
@@ -95,6 +113,8 @@ window.__ModuleLoader__.load({
 .dshu-bar { height: 6px; border-radius: 3px; background: var(--dsw-alias-bg-layer-3, var(--dsw-alias-bg-layer-2)); overflow: hidden; margin-top: 8px; }
 .dshu-bar-fill { height: 100%; border-radius: 3px; background: var(--dshu-level, var(--dsw-alias-state-idle-primary)); transition: width .3s ease; }
 .dshu-credits { font-size: 12px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); margin-top: 6px; }
+.dshu-seat-pct { font-size: 14px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.dshu-seat-credits { font-size: 12px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); margin-left: auto; }
 .dshu-balance { font-size: 22px; font-weight: 600; color: var(--dsw-alias-label-primary); }
 .dshu-balance-sub { font-size: 12px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); margin-top: 4px; }
 .dshu-muted { font-size: 13px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); }
@@ -140,6 +160,16 @@ window.__ModuleLoader__.load({
       h('circle', { cx: 12, cy: 12, r: 1.4, fill: 'currentColor', stroke: 'none' }),
       h('path', { d: 'M17 21a9 9 0 0 0 4-4' }),
       h('path', { d: 'M21 17.5v3.5h-3.5' }));
+    }
+
+    function RefreshIcon({ size }) {
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
+        stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
+        'aria-hidden': true, style: { display: 'block' },
+      },
+      h('path', { d: 'M21 12a9 9 0 1 1-2.64-6.36' }),
+      h('path', { d: 'M21 3v6h-6' }));
     }
 
     function Bar({ remainingPct, warnPct }) {
@@ -191,8 +221,88 @@ window.__ModuleLoader__.load({
 
       const zhipu = data?.zhipu;
       const deepseek = data?.deepseek;
+      const qwen = data?.qwen;
       const minRemaining = zhipu?.windows?.length
         ? Math.min(...zhipu.windows.map((w) => w.remainingPct ?? 100)) : null;
+
+      const cards = [];
+
+      if (zhipu) cards.push(h('div', {
+        key: 'zhipu', className: 'dshu-card', style: { '--dshu-level': levelVar(minRemaining, warnPct) },
+      },
+        h('div', { className: 'dshu-card-name' }, h('span', { className: 'dshu-dot' }), t('zhipu')),
+        zhipu.windows?.length
+          ? h('div', { className: 'dshu-windows' },
+              zhipu.windows.map((w, i) => h('div', { key: w.kind + i },
+                h('div', { className: 'dshu-window-head' },
+                  h('span', { className: 'dshu-window-label' },
+                    w.kind === 'hours' ? t('zhipuHoursPrefix') + (w.hours || 5) + t('zhipuHoursSuffix') : t('zhipuWeek')),
+                  h('span', { className: 'dshu-pct' },
+                    w.remainingPct == null ? t('noData') : Math.round(w.remainingPct) + '%'),
+                  w.resetAt && h('span', { className: 'dshu-reset' }, `${t('resetAt')} ${formatReset(w.resetAt)}`)),
+                h(Bar, { remainingPct: w.remainingPct, warnPct }),
+                w.remainingCredits != null && w.totalCredits != null
+                  && h('div', { className: 'dshu-credits' }, `${t('zhipuCreditsPrefix')}${w.remainingCredits} / ${w.totalCredits}`))),
+              zhipu.error && h('div', { className: 'dshu-error' }, zhipu.error))
+          : h('div', null,
+              h('div', { className: 'dshu-muted' }, t('noData')),
+              zhipu.error && h('div', { className: 'dshu-error' }, zhipu.error))));
+
+      if (qwen) {
+        const qwenErrorText = qwen.error === 'cli-missing' ? t('qwenCliMissing')
+          : qwen.error === 'auth' ? t('qwenLogin')
+          : qwen.error === 'query-failed' ? t('qwenQueryFailed')
+          : qwen.error ? String(qwen.error) : null;
+        cards.push(h('div', {
+          key: 'qwen', className: 'dshu-card',
+          style: { '--dshu-level': qwenErrorText
+            ? 'var(--dsw-alias-state-error-primary)' : levelVar(qwen.remainingPct, warnPct) },
+        },
+          h('div', { className: 'dshu-card-name' }, h('span', { className: 'dshu-dot' }), t('qwen')),
+          qwenErrorText
+            ? h('div', { className: 'dshu-muted' }, qwenErrorText)
+            : h('div', { className: 'dshu-windows' },
+                h('div', null,
+                  h('div', { className: 'dshu-window-head' },
+                    h('span', { className: 'dshu-window-label' }, t('qwenOverallLabel')),
+                    h('span', { className: 'dshu-pct' },
+                      qwen.remainingPct == null ? t('noData') : Math.round(qwen.remainingPct) + '%'),
+                    qwen.expiresAt && h('span', { className: 'dshu-reset' }, `${t('qwenExpires')} ${formatReset(qwen.expiresAt)}`)),
+                  h(Bar, { remainingPct: qwen.remainingPct, warnPct }),
+                  h('div', { className: 'dshu-credits' },
+                    qwen.credits && qwen.credits.remaining != null
+                      ? `${t('qwenCreditsPrefix')}${qwen.credits.total != null ? `${Math.round(qwen.credits.remaining)} / ${Math.round(qwen.credits.total)}` : Math.round(qwen.credits.remaining)}` : null,
+                    qwen.credits?.addOn != null ? ` · ${t('qwenAddOn')} ${Math.round(qwen.credits.addOn)}` : null)),
+                qwen.seats?.length ? qwen.seats.map((s) => {
+                  const seatPct = s.remaining != null && s.total > 0 ? (s.remaining / s.total) * 100 : null;
+                  return h('div', { key: s.seat },
+                    h('div', { className: 'dshu-window-head' },
+                      h('span', { className: 'dshu-window-label' }, `${t('qwenSeat')} ${s.seat}`),
+                      h('span', { className: 'dshu-seat-pct' },
+                        seatPct == null ? t('noData') : Math.round(seatPct) + '%'),
+                      h('span', { className: 'dshu-seat-credits' },
+                        s.remaining != null ? `${Math.round(s.remaining)} / ${Math.round(s.total)}` : null)),
+                    h(Bar, { remainingPct: seatPct, warnPct }));
+                }) : null)));
+      }
+
+      if (deepseek) cards.push(h('div', { key: 'deepseek', className: 'dshu-card' },
+        h('div', { className: 'dshu-card-name' },
+          h('span', { className: 'dshu-dot', style: { '--dshu-level': deepseek.error && !deepseek.balances?.length
+            ? 'var(--dsw-alias-state-error-primary)'
+            : deepseek.balances?.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-idle-primary)' } }),
+          t('deepseek')),
+        deepseek.balances?.length
+          ? h('div', null,
+              deepseek.balances.map((b) => h('div', { key: b.currency, style: { marginBottom: 8 } },
+                h('div', { className: 'dshu-balance' }, `${b.total} ${b.currency}`),
+                (b.granted != null || b.toppedUp != null) && h('div', { className: 'dshu-balance-sub' },
+                  [b.granted != null ? `${t('granted')} ${b.granted}` : null,
+                   b.toppedUp != null ? `${t('toppedUp')} ${b.toppedUp}` : null].filter(Boolean).join(' · ')))))
+          : h('div', null,
+              h('div', { className: 'dshu-muted' }, t('noData')),
+              deepseek.error && h('div', { className: 'dshu-error' }, deepseek.error)),
+        deepseek.error && deepseek.balances?.length && h('div', { className: 'dshu-error' }, deepseek.error)));
 
       return h('div', { className: 'dshu-dialog-body' },
         h('style', null, CSS),
@@ -202,7 +312,7 @@ window.__ModuleLoader__.load({
           h('button', {
             className: 'dshu-refresh push', type: 'button', disabled: loading,
             onClick: () => { void load(true); },
-          }, UsageIcon({ size: 14 }), t('refresh')),
+          }, RefreshIcon({ size: 14 }), t('refresh')),
           onClose && h('button', {
             className: 'dshu-close', type: 'button', 'aria-label': t('close'),
             onClick: onClose,
@@ -212,47 +322,8 @@ window.__ModuleLoader__.load({
               h('div', { className: 'dshu-muted' }, `${t('loadFailed')}: ${error}`),
               h('button', { className: 'dshu-refresh', type: 'button', style: { marginTop: 10 }, onClick: () => { void load(true); } }, t('retry')))
           : h('div', { className: 'dshu-grid' },
-
-            h('div', { className: 'dshu-card', style: { '--dshu-level': levelVar(minRemaining, warnPct) } },
-              h('div', { className: 'dshu-card-name' }, h('span', { className: 'dshu-dot' }), t('zhipu')),
-              !zhipu?.configured
-                ? h('div', { className: 'dshu-muted' }, t('zhipuNotConfigured'))
-                : zhipu.windows.length
-                  ? h('div', { className: 'dshu-windows' },
-                      zhipu.windows.map((w, i) => h('div', { key: w.kind + i },
-                        h('div', { className: 'dshu-window-head' },
-                          h('span', { className: 'dshu-window-label' },
-                            w.kind === 'hours' ? t('zhipuHoursPrefix') + (w.hours || 5) + t('zhipuHoursSuffix') : t('zhipuWeek')),
-                          h('span', { className: 'dshu-pct' },
-                            w.remainingPct == null ? t('noData') : Math.round(w.remainingPct) + '%'),
-                          w.resetAt && h('span', { className: 'dshu-reset' }, `${t('resetAt')} ${formatReset(w.resetAt)}`)),
-                        h(Bar, { remainingPct: w.remainingPct, warnPct }),
-                        w.remainingCredits != null && w.totalCredits != null
-                          && h('div', { className: 'dshu-credits' }, `${t('zhipuCreditsPrefix')}${w.remainingCredits} / ${w.totalCredits}`))),
-                      zhipu.error && h('div', { className: 'dshu-error' }, zhipu.error))
-                  : h('div', null,
-                      h('div', { className: 'dshu-muted' }, t('noData')),
-                      zhipu.error && h('div', { className: 'dshu-error' }, zhipu.error))),
-
-            h('div', { className: 'dshu-card' },
-              h('div', { className: 'dshu-card-name' },
-                h('span', { className: 'dshu-dot', style: { '--dshu-level': deepseek?.error && !deepseek?.balances?.length
-                  ? 'var(--dsw-alias-state-error-primary)'
-                  : deepseek?.balances?.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-idle-primary)' } }),
-                t('deepseek')),
-              !deepseek?.configured
-                ? h('div', { className: 'dshu-muted' }, t('deepseekNotConfigured'))
-                : deepseek.balances.length
-                  ? h('div', null,
-                      deepseek.balances.map((b) => h('div', { key: b.currency, style: { marginBottom: 8 } },
-                        h('div', { className: 'dshu-balance' }, `${b.total} ${b.currency}`),
-                        (b.granted != null || b.toppedUp != null) && h('div', { className: 'dshu-balance-sub' },
-                          [b.granted != null ? `${t('granted')} ${b.granted}` : null,
-                           b.toppedUp != null ? `${t('toppedUp')} ${b.toppedUp}` : null].filter(Boolean).join(' · ')))))
-                  : h('div', null,
-                      h('div', { className: 'dshu-muted' }, t('noData')),
-                      deepseek.error && h('div', { className: 'dshu-error' }, deepseek.error)),
-              deepseek?.error && deepseek?.balances?.length && h('div', { className: 'dshu-error' }, deepseek.error))));
+              cards.length ? cards : h('div', { className: 'dshu-card' },
+                h('div', { className: 'dshu-muted' }, t('noData')))));
     }
 
     let localeHandle = null;
