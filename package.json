@@ -1,21 +1,28 @@
 {
   "name": "dsh-usage",
   "version": "1.0.0",
-  "private": true,
+  "description": "Zhipu GLM Code Plan quota and DeepSeek balance in the DSH sidebar",
+  "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0-rc.1 <0.3.0-0"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4"
   },
   "dsh": {
-    "meta": {
-      "title": "用量统计",
-      "description": "在侧栏查看 DeepSeek 余额与智谱 Code Plan 剩余额度"
-    },
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": { "platform": "web", "immediately": true }
   }

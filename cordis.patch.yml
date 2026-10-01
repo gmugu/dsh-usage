@@ -1,4 +1,4 @@
 - insert:
     - id: dsh-usage
-      name: '@local/dsh-usage'
+      name: 'dsh-usage'
       config: {}
